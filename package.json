@@ -1,0 +1,15 @@
+{
+  "name": "agent-platform",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lesson": "tsx --env-file=.env"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "@platform/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {"@anthropic-ai/sdk": "^0.133.0"}
+}
