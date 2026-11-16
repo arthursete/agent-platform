@@ -21,5 +21,7 @@ lessons/          the step-by-step files the harness was learned from
 ```
 npm install
 npm run typecheck
+npm test                             # no API key needed: tests fake the model
+npm run web                          # chat with the IT agent at http://localhost:3000 (needs the key)
 npm run lesson lessons/01-hello.ts   # needs ANTHROPIC_API_KEY in .env
 ```

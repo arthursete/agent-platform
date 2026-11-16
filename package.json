@@ -8,7 +8,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lesson": "tsx --env-file=.env",
-    "test": "vitest run"
+    "test": "vitest run",
+    "web": "tsx --env-file=.env packages/channels/src/web/server.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

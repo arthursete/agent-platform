@@ -4,5 +4,10 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
-  "dependencies": {"@platform/core": "*"}
+  "dependencies": {
+    "@hono/node-server": "^2.1.8",
+    "@platform/core": "*",
+    "@platform/integrations": "^0.0.0",
+    "hono": "^4.13.19"
+  }
 }

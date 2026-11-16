@@ -4,5 +4,8 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
-  "dependencies": {"@anthropic-ai/sdk": "^0.133.0"}
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  }
 }
