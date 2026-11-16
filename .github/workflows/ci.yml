@@ -28,6 +28,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0     # the whole history, not only the latest commit
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Scan every commit, every time. (The ready-made gitleaks action only
+      # scans the commits in a push, and fails on a repo's very first push.)
+      - name: Scan the whole history for secrets
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks git --no-banner --redact
