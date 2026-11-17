@@ -45,6 +45,30 @@ describe("web channel", () => {
     expect(seen).toEqual([1, 1]);
   });
 
+  it("streams progress events, then a final summary, when the page asks for a stream", async () => {
+    const create: CreateMessage = async (_params, onText) => {
+      onText?.("Hel");
+      onText?.("lo.");
+      return { stop_reason: "end_turn", content: [{ type: "text", text: "Hello." }] } as unknown as Reply;
+    };
+    const app = createWebApp({ name: "t", system: "t", tools: [], create });
+    const res = await app.request("/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      body: JSON.stringify({ message: "Hi" }),
+    });
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const events = (await res.text())
+      .split("\n")
+      .filter((line) => line.startsWith("data: "))
+      .map((line) => JSON.parse(line.slice(6)));
+    expect(events).toEqual([
+      { type: "text", delta: "Hel" },
+      { type: "text", delta: "lo." },
+      { type: "done", conversationId: expect.any(String), reply: "Hello.", toolCalls: [] },
+    ]);
+  });
+
   it("rejects a missing or empty message", async () => {
     const { app } = appThatSays();
     expect((await post(app, {})).status).toBe(400);

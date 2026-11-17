@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kestrel Freight IT desk</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one centred column. Before the first message the composer sits
+     in the middle of the screen; afterwards it docks at the bottom and the
+     conversation scrolls above it. The agent's actions appear inline, live. */
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --bubble: #e8ecf3; --ink: #0f1319; --soft: #5a6472; --faint: #8b94a1; --line: #e2e6ec;
+    --accent: #1f4fd8; --on-accent: #ffffff; --ok: #1a7f55; --hold: #8f5600; --hold-bg: #fff3d6; --hold-line: #f0d48f; --fail: #b3261e; --fail-bg: #fdeceb;
+    --shadow: 0 1px 2px rgba(15,19,25,.05), 0 12px 32px -16px rgba(15,19,25,.18);
+    --ui: "Onest", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0e12; --surface: #15181e; --bubble: #1f242d; --ink: #e9ecf1; --soft: #9aa3b0; --faint: #6d7684; --line: #262b34;
+      --accent: #8aa4ff; --on-accent: #0c0e12; --ok: #5fcf9c; --hold: #f0c36a; --hold-bg: #2b2311; --hold-line: #57461c; --fail: #ff9a92; --fail-bg: #321716;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--ui); -webkit-font-smoothing: antialiased; display: flex; flex-direction: column; }
+  button, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  svg { display: block; }
+
+  /* ---------- top bar ---------- */
+  .bar { display: flex; align-items: center; gap: 10px; padding: 12px max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left)); flex: none; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -0.01em; margin-right: auto; min-width: 0; }
+  .brand svg { width: 26px; height: 26px; flex: none; }
+  .brand span { color: var(--soft); font-weight: 400; }
+  .sim { font-size: 13px; color: var(--soft); border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px; white-space: nowrap; }
+  .new { display: flex; align-items: center; gap: 6px; background: none; border: 0; border-radius: 8px; padding: 7px 10px; font-size: 14px; font-weight: 500; color: var(--soft); }
+  .new:hover { background: var(--bubble); color: var(--ink); }
+  .new svg { width: 16px; height: 16px; }
+
+  /* ---------- stage ---------- */
+  #stage { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable both-edges; }
+  .col { width: 100%; max-width: 744px; margin: 0 auto; padding: 0 16px; }
+  #thread { display: flex; flex-direction: column; gap: 28px; padding-top: 12px; padding-bottom: 32px; }
+  .dock { flex: none; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+
+  /* Before the first message: everything sits in the middle. */
+  #stage.empty #scroll { display: none; }
+  #stage.empty { justify-content: center; padding-bottom: 9vh; }
+  .hello { display: none; }
+  #stage.empty .hello { display: block; margin: 0 0 26px; font-size: clamp(30px, 5vw, 44px); line-height: 1.1; letter-spacing: -0.035em; font-weight: 500; text-wrap: balance; }
+  #stage:not(.empty) .ideas { display: none; }
+
+  /* ---------- composer ---------- */
+  .composer { background: var(--surface); border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow); padding: 14px 14px 10px 18px; transition: border-color .15s; }
+  .composer:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  textarea { display: block; width: 100%; border: 0; outline: 0; background: none; resize: none; padding: 0; min-height: 26px; max-height: 200px; line-height: 1.6; }
+  textarea:focus-visible { outline: 0; }
+  textarea::placeholder { color: var(--faint); }
+  .tools { display: flex; align-items: center; gap: 14px; margin-top: 10px; }
+  .linked { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--soft); }
+  .linked::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .send { margin-left: auto; width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--ink); color: var(--bg); display: grid; place-items: center; transition: opacity .15s, transform .1s; }
+  .send svg { width: 18px; height: 18px; }
+  .send:active { transform: scale(.94); }
+  .send:disabled { opacity: .28; cursor: default; }
+  .send .spin { display: none; }
+  .busy .send .arrow { display: none; }
+  .busy .send .spin { display: block; animation: turn .8s linear infinite; }
+  .note { text-align: center; font-size: 12px; color: var(--faint); margin: 10px 0 0; }
+  #stage.empty .note { display: none; }
+
+  /* ---------- starting ideas ---------- */
+  .ideas { list-style: none; margin: 18px 0 0; padding: 0; }
+  .ideas li + li { border-top: 1px solid var(--line); }
+  .idea { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; background: none; border: 0; padding: 12px 6px; border-radius: 8px; color: var(--soft); }
+  .idea:hover { color: var(--ink); background: color-mix(in srgb, var(--bubble) 60%, transparent); }
+  .idea svg { width: 18px; height: 18px; flex: none; color: var(--faint); }
+  .idea em { margin-left: auto; font-style: normal; font-size: 12px; font-weight: 500; color: var(--hold); background: var(--hold-bg); border-radius: 99px; padding: 2px 9px; white-space: nowrap; }
+
+  /* ---------- messages ---------- */
+  .you { align-self: flex-end; max-width: min(82%, 560px); background: var(--bubble); padding: 10px 16px; border-radius: 20px 20px 6px 20px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .agent { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+  .prose { overflow-wrap: anywhere; }
+  .prose > * { margin: 0; }
+  .prose > * + * { margin-top: 12px; }
+  .prose ul, .prose ol { padding-left: 22px; }
+  .prose li + li { margin-top: 4px; }
+  .prose strong { font-weight: 600; }
+  .prose h3 { font-size: 16px; font-weight: 600; }
+  .prose code { font: 0.86em var(--mono); background: var(--bubble); padding: 2px 5px; border-radius: 5px; }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .prose table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.45; }
+  .prose th { text-align: left; font-weight: 500; color: var(--soft); white-space: nowrap; }
+  .prose th, .prose td { padding: 9px 14px; vertical-align: top; }
+  .prose tbody tr { border-top: 1px solid var(--line); }
+  .caret { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ink); margin-left: 4px; animation: breathe 1s ease-in-out infinite; }
+
+  /* ---------- the agent's actions, live ---------- */
+  .steps { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+  .steps summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 10px 14px; font-size: 14px; font-weight: 500; cursor: pointer; border-radius: 14px; }
+  .steps summary::-webkit-details-marker { display: none; }
+  .steps summary .chev { margin-left: auto; width: 16px; height: 16px; color: var(--faint); transition: transform .15s; }
+  .steps[open] summary .chev { transform: rotate(90deg); }
+  .steps ol { list-style: none; margin: 0; padding: 2px 14px 12px; display: grid; gap: 9px; }
+  .step { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: start; font-size: 14px; line-height: 1.45; }
+  .step .what { min-width: 0; color: var(--soft); }
+  .step .what b { font-weight: 500; color: var(--ink); }
+  .step .what code { font: 12.5px var(--mono); }
+  .step .what small { display: block; font-size: 13px; color: var(--fail); }
+  .step .sys { font-size: 12px; color: var(--faint); }
+  .icon { width: 18px; height: 18px; display: grid; place-items: center; margin-top: 1px; }
+  .icon svg { width: 16px; height: 16px; }
+  .icon.run svg { animation: turn .8s linear infinite; color: var(--accent); }
+  .icon.ok { color: var(--ok); }
+  .icon.fail { color: var(--fail); }
+  .icon.hold { color: var(--hold); }
+
+  /* An action that was stopped is too important to sit inside a list. */
+  .held { display: grid; grid-template-columns: 20px 1fr; gap: 4px 12px; background: var(--hold-bg); border: 1px solid var(--hold-line); border-radius: 14px; padding: 14px 16px; }
+  .held svg { width: 20px; height: 20px; color: var(--hold); margin-top: 2px; }
+  .held b { font-weight: 600; }
+  .held p { grid-column: 2; margin: 0; font-size: 14px; color: var(--soft); }
+  .held code { font: 13px var(--mono); }
+
+  .problem { background: var(--fail-bg); color: var(--fail); border-radius: 14px; padding: 12px 16px; }
+
+  .acts { display: flex; gap: 2px; margin-top: -6px; }
+  .acts button { display: flex; align-items: center; gap: 6px; background: none; border: 0; border-radius: 8px; padding: 5px 8px; font-size: 13px; color: var(--faint); }
+  .acts button:hover { background: var(--bubble); color: var(--ink); }
+  .acts svg { width: 15px; height: 15px; }
+
+  @keyframes turn { to { transform: rotate(360deg); } }
+  @keyframes breathe { 50% { opacity: .2; transform: scale(.75); } }
+  @keyframes arrive { from { opacity: 0; transform: translateY(6px); } }
+  .you, .agent { animation: arrive .22s ease-out; }
+
+  @media (max-width: 560px) {
+    .sim { display: none; }
+    .new b { display: none; }
+    .step .sys { display: none; }
+    .step { grid-template-columns: 18px 1fr; }
+    #stage.empty { justify-content: flex-end; padding-bottom: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0s !important; transition: none !important; }
+    .icon.run svg, .busy .send .spin { animation: turn 1.6s linear infinite !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Icons, defined once and reused with <use>. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="i-arrow" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></g>
+    <g id="i-spin" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9" /></g>
+    <g id="i-check" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></g>
+    <g id="i-cross" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></g>
+    <g id="i-hand" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16.2v.3"/></g>
+    <g id="i-chev" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></g>
+    <g id="i-copy" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/></g>
+    <g id="i-plus" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></g>
+    <g id="i-device" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2.5 19.5h19"/></g>
+    <g id="i-person" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.200 1.900 7 5.500"/></g>
+    <g id="i-add" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8.5" r="3.5"/><path d="M3 20c.8-3.600 3.600-5.500 7-5.500 1.300 0 2.500.300 3.500.800M18 14v6M15 17h6"/></g>
+    <g id="i-out" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M4 12h11M11.500 8.500 15 12l-3.500 3.500"/></g>
+  </defs>
+</svg>
+
+<header class="bar">
+  <div class="brand">
+    <svg viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="var(--ink)"/><path d="M5 17.500 13 6.500l8 11-5-2.300L13 20l-3-4.800z" fill="var(--bg)"/></svg>
+    Kestrel Freight <span>IT desk</span>
+  </div>
+  <span class="sim" title="Nothing here touches a real account or device">Simulated company</span>
+  <button class="new" id="fresh" type="button" aria-label="New chat"><svg viewBox="0 0 24 24"><use href="#i-plus"/></svg><b>New chat</b></button>
+</header>
+
+<main id="stage" class="empty">
+  <div id="scroll"><div class="col" id="thread" aria-live="polite"></div></div>
+
+  <div class="dock"><div class="col">
+    <h1 class="hello">What needs doing at Kestrel Freight?</h1>
+    <form class="composer" id="form">
+      <textarea id="box" rows="1" placeholder="Ask about a person, an account or a device" aria-label="Message the IT agent"></textarea>
+      <div class="tools">
+        <span class="linked">Entra</span>
+        <span class="linked">Intune</span>
+        <button class="send" id="send" aria-label="Send message" disabled>
+          <svg class="arrow" viewBox="0 0 24 24"><use href="#i-arrow"/></svg>
+          <svg class="spin" viewBox="0 0 24 24"><use href="#i-spin"/></svg>
+        </button>
+      </div>
+    </form>
+    <ul class="ideas">
+      <li><button class="idea" type="button" data-ask="Which devices are non-compliant, and who uses them?"><svg viewBox="0 0 24 24"><use href="#i-device"/></svg>Which devices are non-compliant, and who uses them?</button></li>
+      <li><button class="idea" type="button" data-ask="Is Grace Lindqvist's account still active? What does she still hold?"><svg viewBox="0 0 24 24"><use href="#i-person"/></svg>Is Grace Lindqvist's account still active?</button></li>
+      <li><button class="idea" type="button" data-ask="Onboard Noor Haddad as an Account Executive in Sales, reporting to the Head of Sales. Add her to the Sales group and give her a Microsoft 365 licence."><svg viewBox="0 0 24 24"><use href="#i-add"/></svg>Onboard Noor Haddad into Sales</button></li>
+      <li><button class="idea" type="button" data-ask="Sam Whitlock is handing back his laptop today. Retire it."><svg viewBox="0 0 24 24"><use href="#i-out"/></svg>Retire Sam Whitlock's laptop<em>Needs approval</em></button></li>
+    </ul>
+    <p class="note">A simulated company. Nothing here touches a real account or device.</p>
+  </div></div>
+</main>
+
+<script>
+const stage = document.getElementById("stage"), scroller = document.getElementById("scroll"), thread = document.getElementById("thread");
+const form = document.getElementById("form"), box = document.getElementById("box"), send = document.getElementById("send");
+let conversationId = null, busy = false;
+
+// ---------- small helpers ----------
+// Text always goes in through textContent, never innerHTML: replies are untrusted.
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function icon(name, cls) {
+  const wrap = el("span", "icon " + (cls || ""));
+  wrap.innerHTML = '<svg viewBox="0 0 24 24"><use href="#i-' + name + '"/></svg>'; // fixed string, no user text
+  return wrap;
+}
+// Follow new content down the page, unless the reader has scrolled up.
+let pinned = true;
+scroller.addEventListener("scroll", () => { pinned = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80; });
+function follow() { if (pinned) scroller.scrollTop = scroller.scrollHeight; }
+
+// ---------- Markdown, the small safe subset the agent uses ----------
+function inline(parent, text) {
+  // **bold** and `code`; everything else is plain text.
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  for (const part of parts) {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) parent.append(el("strong", null, part.slice(2, -2)));
+    else if (part.startsWith("`") && part.endsWith("`") && part.length > 2) parent.append(el("code", null, part.slice(1, -1)));
+    else if (part) parent.append(part);
+  }
+}
+const cells = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+function renderMarkdown(target, source) {
+  target.replaceChildren();
+  const lines = source.split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+    // table: a header row followed by a row of dashes
+    if (line.trim().startsWith("|") && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1] || "") && (lines[i + 1] || "").includes("-")) {
+      const table = el("table"), head = el("thead"), body = el("tbody"), hr = el("tr");
+      for (const c of cells(line)) { const th = el("th"); inline(th, c); hr.append(th); }
+      head.append(hr); table.append(head, body);
+      i += 2;
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        const tr = el("tr");
+        for (const c of cells(lines[i])) { const td = el("td"); inline(td, c); tr.append(td); }
+        body.append(tr); i++;
+      }
+      const wrap = el("div", "tablewrap"); wrap.append(table); target.append(wrap);
+      continue;
+    }
+    const bullet = /^\s*[-*]\s+/, numbered = /^\s*\d+[.)]\s+/;
+    if (bullet.test(line) || numbered.test(line)) {
+      const kind = bullet.test(line) ? bullet : numbered;
+      const list = el(kind === bullet ? "ul" : "ol");
+      while (i < lines.length && kind.test(lines[i])) { const li = el("li"); inline(li, lines[i].replace(kind, "")); list.append(li); i++; }
+      target.append(list);
+      continue;
+    }
+    const heading = /^#{1,4}\s+/;
+    if (heading.test(line)) { const h = el("h3"); inline(h, line.replace(heading, "")); target.append(h); i++; continue; }
+    // paragraph: consecutive plain lines
+    const p = el("p");
+    let first = true;
+    while (i < lines.length && lines[i].trim() && !bullet.test(lines[i]) && !numbered.test(lines[i]) && !heading.test(lines[i]) && !lines[i].trim().startsWith("|")) {
+      if (!first) p.append(el("br"));
+      inline(p, lines[i]); first = false; i++;
+    }
+    if (first) { inline(p, lines[i]); i++; } // a lone "|" line that is not a table
+    target.append(p);
+  }
+}
+
+// ---------- plain-English names for each action ----------
+// [while running, when finished, which system, what to show from the input]
+const ACTIONS = {
+  entra_find_user: ["Searching staff for", "Searched staff for", "Entra", (i) => i.query],
+  entra_list_groups: ["Listing groups", "Listed groups", "Entra"],
+  entra_list_licences: ["Checking licence seats", "Checked licence seats", "Entra"],
+  entra_create_user: ["Creating an account for", "Created an account for", "Entra", (i) => [i.firstName, i.lastName].filter(Boolean).join(" ")],
+  entra_disable_user: ["Disabling account", "Disabled account", "Entra", (i) => i.userId],
+  entra_add_user_to_group: ["Adding to group", "Added to group", "Entra", (i) => i.groupId],
+  entra_assign_licence: ["Assigning licence", "Assigned licence", "Entra", (i) => i.skuId],
+  intune_list_devices: ["Listing devices", "Listed devices", "Intune", (i) => i.complianceState || i.userId],
+  intune_get_device: ["Checking device", "Checked device", "Intune", (i) => i.deviceId],
+  intune_lock_device: ["Locking device", "Locked device", "Intune", (i) => i.deviceId],
+  intune_retire_device: ["Retiring device", "Retired device", "Intune", (i) => i.deviceId],
+  intune_wipe_device: ["Wiping device", "Wiped device", "Intune", (i) => i.deviceId],
+};
+function describe(name, input) {
+  const known = ACTIONS[name];
+  if (known) return { doing: known[0], did: known[1], system: known[2], subject: known[3] ? known[3](input || {}) : "" };
+  const words = name.split("_").join(" ");
+  return { doing: "Running " + words, did: "Ran " + words, system: "", subject: "" };
+}
+
+// ---------- one agent reply, built up live from events ----------
+function agentTurn() {
+  const root = el("div", "agent");
+  thread.append(root);
+  let prose = null, proseText = "", fullText = "";
+  let group = null, list = null, label = null, groupIcon = null;
+  const rows = new Map();
+  let counts = { done: 0, failed: 0, held: 0 }, scheduled = false;
+  const caret = el("span", "caret");
+
+  function paint() {
+    scheduled = false;
+    if (!prose) return;
+    renderMarkdown(prose, proseText);
+    const last = prose.lastElementChild;
+    if (caret.isConnected || busy) (last && last.tagName === "P" ? last : prose).append(caret);
+    follow();
+  }
+  function closeGroup() {
+    if (!group) return;
+    const n = counts.done + counts.failed;
+    label.textContent = (n === 1 ? "1 action" : n + " actions") + (counts.failed ? ", " + counts.failed + " failed" : "");
+    groupIcon.replaceWith(groupIcon = icon(counts.failed ? "cross" : "check", counts.failed ? "fail" : "ok"));
+    if (!counts.failed) group.open = false;
+    if (!n) group.remove();
+    group = null;
+  }
+
+  return {
+    text(delta) {
+      closeGroup();
+      if (!prose) { prose = el("div", "prose"); proseText = ""; root.append(prose); }
+      proseText += delta; fullText += delta;
+      if (!scheduled) { scheduled = true; requestAnimationFrame(paint); }
+    },
+    toolStart(e) {
+      caret.remove();
+      // Finish drawing any text that arrived just before this action.
+      if (prose && proseText.trim()) renderMarkdown(prose, proseText);
+      else if (prose) prose.remove();
+      prose = null;
+      if (!group) {
+        counts = { done: 0, failed: 0, held: 0 };
+        group = el("details", "steps"); group.open = true;
+        const summary = el("summary");
+        groupIcon = icon("spin", "run"); label = el("span");
+        const chev = el("span", "chev"); chev.innerHTML = '<svg viewBox="0 0 24 24"><use href="#i-chev"/></svg>';
+        summary.append(groupIcon, label, chev);
+        list = el("ol"); group.append(summary, list); root.append(group);
+      }
+      const d = describe(e.name, e.input);
+      label.textContent = d.doing + (d.subject ? " " + d.subject : "") + "…";
+      const row = el("li", "step"), what = el("span", "what");
+      what.append(el("b", null, d.doing));
+      if (d.subject) what.append(" ", el("code", null, d.subject));
+      row.append(icon("spin", "run"), what, el("span", "sys", d.system));
+      list.append(row); rows.set(e.id, { row, what, d });
+      follow();
+    },
+    toolEnd(e) {
+      const r = rows.get(e.id);
+      if (!r) return;
+      if (e.blocked) {
+        // Pull it out of the list and show it as its own notice.
+        r.row.remove(); counts.held++;
+        const card = el("div", "held");
+        card.innerHTML = '<svg viewBox="0 0 24 24"><use href="#i-hand"/></svg>';
+        const title = el("b"); title.append(r.d.doing + " ");
+        if (r.d.subject) title.append(el("code", null, r.d.subject), " ");
+        title.append("needs approval");
+        card.append(title, el("p", null, "It can't be undone, so the agent stopped before running it. Nothing was changed."));
+        // Close the list so far, so the notice sits where it happened.
+        closeGroup();
+        root.append(card);
+      } else {
+        if (!e.failed) r.what.firstChild.textContent = r.d.did;
+        r.row.firstChild.replaceWith(icon(e.failed ? "cross" : "check", e.failed ? "fail" : "ok"));
+        if (e.failed) { counts.failed++; if (e.detail) r.what.append(el("small", null, e.detail.slice(0, 200))); }
+        else counts.done++;
+      }
+      follow();
+    },
+    finish() {
+      closeGroup(); caret.remove();
+      if (prose) renderMarkdown(prose, proseText);
+      if (fullText.trim()) {
+        const acts = el("div", "acts"), copy = el("button");
+        copy.type = "button";
+        copy.innerHTML = '<svg viewBox="0 0 24 24"><use href="#i-copy"/></svg><span>Copy</span>';
+        copy.addEventListener("click", async () => {
+          try { await navigator.clipboard.writeText(fullText.trim()); copy.lastChild.textContent = "Copied"; }
+          catch { copy.lastChild.textContent = "Couldn't copy"; }
+          setTimeout(() => (copy.lastChild.textContent = "Copy"), 1600);
+        });
+        acts.append(copy); root.append(acts);
+      }
+      follow();
+    },
+    fail(message) {
+      closeGroup(); caret.remove();
+      if (prose && !proseText.trim()) prose.remove();
+      root.append(el("div", "problem", message));
+      follow();
+    },
+    waiting() { prose = el("div", "prose"); root.append(prose); prose.append(caret); },
+  };
+}
+
+// ---------- sending ----------
+async function ask(message) {
+  if (busy || !message) return;
+  busy = true; form.classList.add("busy"); send.disabled = true;
+  stage.classList.remove("empty");
+  thread.append(el("div", "you", message));
+  pinned = true;
+  const turn = agentTurn();
+  turn.waiting(); follow();
+  let ended = false;
+  try {
+    const res = await fetch("/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      body: JSON.stringify({ message, conversationId }),
+    });
+    if (!res.ok || !res.body) throw new Error("bad response");
+    // The reply is a stream of events, one per "data:" line.
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let cut;
+      while ((cut = buffer.indexOf("\n\n")) >= 0) {
+        const chunk = buffer.slice(0, cut); buffer = buffer.slice(cut + 2);
+        const data = chunk.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trimStart()).join("\n");
+        if (!data) continue;
+        const e = JSON.parse(data);
+        if (e.type === "text") turn.text(e.delta);
+        else if (e.type === "tool_start") turn.toolStart(e);
+        else if (e.type === "tool_end") turn.toolEnd(e);
+        else if (e.type === "done") { conversationId = e.conversationId; ended = true; turn.finish(); }
+        else if (e.type === "error") { ended = true; turn.fail(e.message); }
+      }
+    }
+    if (!ended) turn.fail("The reply stopped part-way. Send the message again.");
+  } catch {
+    if (!ended) turn.fail("The server didn't answer. Check that npm run web is still running, then send the message again.");
+  }
+  busy = false; form.classList.remove("busy");
+  send.disabled = !box.value.trim();
+  box.focus();
+}
+
+function grow() { box.style.height = "auto"; box.style.height = Math.min(box.scrollHeight, 200) + "px"; }
+function submit() {
+  const message = box.value.trim();
+  if (!message || busy) return;
+  box.value = ""; grow();
+  ask(message);
+}
+form.addEventListener("submit", (e) => { e.preventDefault(); submit(); });
+box.addEventListener("input", () => { grow(); send.disabled = busy || !box.value.trim(); });
+box.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); } });
+document.querySelectorAll(".idea").forEach((b) => b.addEventListener("click", () => ask(b.dataset.ask)));
+// A new chat is a fresh page. The simulated company itself resets only when the server restarts.
+document.getElementById("fresh").addEventListener("click", () => location.reload());
+box.focus();
+</script>
+</body>
+</html>

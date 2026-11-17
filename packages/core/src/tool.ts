@@ -30,3 +30,9 @@ export interface ToolCallRecord {
   outcome: ToolOutcome;
   blocked: boolean; // true = the harness refused to run it
 }
+
+// What the loop reports while it works, in the order things happen.
+export type AgentEvent =
+  | { type: "text"; delta: string } // the model wrote some more of its reply
+  | { type: "tool_start"; id: string; name: string; input: unknown }
+  | { type: "tool_end"; id: string; name: string; blocked: boolean; failed: boolean; detail?: string };

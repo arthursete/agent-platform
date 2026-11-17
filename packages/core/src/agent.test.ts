@@ -92,6 +92,19 @@ describe("the tool loop", () => {
     expect(result.text).toBe("Sorry.");
   });
 
+  it("reports each tool as it starts and ends, so a channel can show progress", async () => {
+    const wipe = tool("wipe", { requiresApproval: true });
+    const { create } = script(asks({ name: "lookup", input: { q: "sam" } }, { name: "wipe", input: {} }), says("Done."));
+    const events: unknown[] = [];
+    await runAgent({ ...agent, tools: [tool("lookup"), wipe], create }, [], "Go", (e) => events.push(e));
+    expect(events).toEqual([
+      { type: "tool_start", id: "call-0", name: "lookup", input: { q: "sam" } },
+      { type: "tool_end", id: "call-0", name: "lookup", blocked: false, failed: false, detail: undefined },
+      { type: "tool_start", id: "call-1", name: "wipe", input: {} },
+      { type: "tool_end", id: "call-1", name: "wipe", blocked: true, failed: false, detail: expect.stringContaining("approval") },
+    ]);
+  });
+
   it("stops after maxSteps if the model never finishes", async () => {
     const again = () => asks({ name: "lookup", input: {} });
     const { create } = script(again(), again(), again());

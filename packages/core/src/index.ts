@@ -4,4 +4,4 @@
 export { runAgent } from "./agent.js";
 export type { AgentConfig, AgentResult, CreateMessage } from "./agent.js";
 export { loadMcpTools } from "./mcp.js";
-export type { Tool, ToolOutcome, ToolCallRecord } from "./tool.js";
+export type { AgentEvent, Tool, ToolOutcome, ToolCallRecord } from "./tool.js";

@@ -13,14 +13,17 @@
 // ============================================================
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { Tool, ToolCallRecord, ToolOutcome } from "./tool.js";
+import type { AgentEvent, Tool, ToolCallRecord, ToolOutcome } from "./tool.js";
 
 type Message = Anthropic.Beta.BetaMessageParam;
 
 // The one model call the loop needs. Tests pass a fake here, so the loop
 // can be tested without the network and without spending money.
+// `onText` is called with each piece of text as the model writes it, so a
+// channel can show the reply growing instead of waiting for all of it.
 export type CreateMessage = (
   params: Anthropic.Beta.MessageCreateParamsNonStreaming,
+  onText?: (delta: string) => void,
 ) => Promise<Anthropic.Beta.BetaMessage>;
 
 export interface AgentConfig {
@@ -42,12 +45,21 @@ export interface AgentResult {
 const DEFAULT_MODEL = "claude-opus-5-5";
 
 let sharedClient: Anthropic | undefined;
-const defaultCreate: CreateMessage = (params) => {
+const defaultCreate: CreateMessage = (params, onText) => {
   sharedClient ??= new Anthropic(); // reads ANTHROPIC_API_KEY from the environment
-  return sharedClient.beta.messages.create(params);
+  // Streaming: the reply arrives piece by piece. finalMessage() waits for
+  // the end and returns the same complete message a normal call would.
+  const stream = sharedClient.beta.messages.stream(params);
+  if (onText) stream.on("text", onText);
+  return stream.finalMessage();
 };
 
-export async function runAgent(config: AgentConfig, history: Message[], userText: string): Promise<AgentResult> {
+export async function runAgent(
+  config: AgentConfig,
+  history: Message[],
+  userText: string,
+  onEvent: (event: AgentEvent) => void = () => {}, // live progress, for channels that can show it
+): Promise<AgentResult> {
   const create = config.create ?? defaultCreate;
   const maxSteps = config.maxSteps ?? 12;
   const messages: Message[] = [...history, { role: "user", content: userText }];
@@ -61,7 +73,8 @@ export async function runAgent(config: AgentConfig, history: Message[], userText
   }));
 
   for (let step = 0; step < maxSteps; step++) {
-    const response = await create({
+    const response = await create(
+      {
       model: config.model ?? DEFAULT_MODEL,
       max_tokens: 16000,
       system: config.system,
@@ -71,7 +84,9 @@ export async function runAgent(config: AgentConfig, history: Message[], userText
       // another model instead of failing. Same setting as the lessons.
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
-    });
+      },
+      (delta) => onEvent({ type: "text", delta }),
+    );
 
     // Always append the WHOLE content, not only the text. The tool_use and
     // thinking blocks must go back exactly as they arrived.
@@ -91,8 +106,10 @@ export async function runAgent(config: AgentConfig, history: Message[], userText
     const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
     for (const block of response.content) {
       if (block.type !== "tool_use") continue;
+      onEvent({ type: "tool_start", id: block.id, name: block.name, input: block.input });
       const { outcome, blocked } = await runOne(config.tools, block.name, block.input);
       toolCalls.push({ name: block.name, input: block.input, outcome, blocked });
+      onEvent({ type: "tool_end", id: block.id, name: block.name, blocked, failed: outcome.isError && !blocked, detail: outcome.isError ? outcome.text : undefined });
       results.push({ type: "tool_result", tool_use_id: block.id, content: outcome.text, is_error: outcome.isError });
     }
     messages.push({ role: "user", content: results });

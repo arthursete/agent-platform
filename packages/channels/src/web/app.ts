@@ -10,9 +10,13 @@
 // will do the same thing later with different plumbing.
 // ============================================================
 
+import { readFileSync } from "node:fs";
 import { Hono } from "hono";
-import { runAgent, type AgentConfig, type AgentResult } from "@platform/core";
-import { PAGE } from "./page.js";
+import { streamSSE } from "hono/streaming";
+import { runAgent, type AgentConfig, type AgentEvent, type AgentResult } from "@platform/core";
+
+// The page is a plain HTML file next to this one, read once at startup.
+const PAGE = readFileSync(new URL("./page.html", import.meta.url), "utf8");
 
 type History = AgentResult["messages"];
 
@@ -27,6 +31,30 @@ export function createWebApp(agent: AgentConfig) {
 
   app.get("/", (c) => c.html(PAGE));
 
+  // Take one turn of one conversation, reporting progress as it happens.
+  function takeTurn(id: string, message: string, onEvent: (e: AgentEvent) => void) {
+    const turn = (queues.get(id) ?? Promise.resolve()).then(async () => {
+      const result = await runAgent(agent, conversations.get(id) ?? [], message, onEvent);
+      conversations.set(id, result.messages);
+      return result;
+    });
+    queues.set(id, turn.catch(() => undefined));
+    return turn;
+  }
+
+  const summary = (id: string, result: AgentResult) => ({
+    conversationId: id,
+    reply: result.text,
+    toolCalls: result.toolCalls.map((t) => ({
+      name: t.name,
+      input: t.input,
+      blocked: t.blocked,
+      failed: t.outcome.isError && !t.blocked,
+      // Only failures carry their text. Successful results can be large.
+      ...(t.outcome.isError && !t.blocked ? { detail: t.outcome.text.slice(0, 300) } : {}),
+    })),
+  });
+
   app.post("/chat", async (c) => {
     const body: unknown = await c.req.json().catch(() => null);
     const { message, conversationId } = (body ?? {}) as { message?: unknown; conversationId?: unknown };
@@ -35,28 +63,28 @@ export function createWebApp(agent: AgentConfig) {
     }
     const id = typeof conversationId === "string" && conversations.has(conversationId) ? conversationId : crypto.randomUUID();
 
-    const turn = (queues.get(id) ?? Promise.resolve()).then(async () => {
-      const result = await runAgent(agent, conversations.get(id) ?? [], message.trim());
-      conversations.set(id, result.messages);
-      return result;
-    });
-    queues.set(id, turn.catch(() => undefined));
+    // The page asks for a stream, so it can show each lookup and each word
+    // as it happens. Anything else (curl, tests) gets one JSON answer.
+    if (c.req.header("accept")?.includes("text/event-stream")) {
+      return streamSSE(c, async (stream) => {
+        // Events are sent one after another, in order, through this chain.
+        let sending: Promise<unknown> = Promise.resolve();
+        const send = (data: unknown) => {
+          sending = sending.then(() => stream.writeSSE({ data: JSON.stringify(data) })).catch(() => undefined);
+        };
+        try {
+          const result = await takeTurn(id, message.trim(), send);
+          send({ type: "done", ...summary(id, result) });
+        } catch (err) {
+          console.error(err);
+          send({ type: "error", message: "The agent could not answer. Check the server log." });
+        }
+        await sending;
+      });
+    }
 
     try {
-      const result = await turn;
-      return c.json({
-        conversationId: id,
-        reply: result.text,
-        // Shown under the reply, so you can see what the agent actually did.
-        toolCalls: result.toolCalls.map((t) => ({
-          name: t.name,
-          input: t.input,
-          blocked: t.blocked,
-          failed: t.outcome.isError,
-          // Only failures carry their text. Successful results can be large.
-          ...(t.outcome.isError && !t.blocked ? { detail: t.outcome.text.slice(0, 300) } : {}),
-        })),
-      });
+      return c.json(summary(id, await takeTurn(id, message.trim(), () => {})));
     } catch (err) {
       console.error(err);
       return c.json({ error: "The agent could not answer. Check the server log." }, 502);
