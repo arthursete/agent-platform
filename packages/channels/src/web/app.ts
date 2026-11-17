@@ -48,7 +48,14 @@ export function createWebApp(agent: AgentConfig) {
         conversationId: id,
         reply: result.text,
         // Shown under the reply, so you can see what the agent actually did.
-        toolCalls: result.toolCalls.map((t) => ({ name: t.name, input: t.input, blocked: t.blocked, failed: t.outcome.isError })),
+        toolCalls: result.toolCalls.map((t) => ({
+          name: t.name,
+          input: t.input,
+          blocked: t.blocked,
+          failed: t.outcome.isError,
+          // Only failures carry their text. Successful results can be large.
+          ...(t.outcome.isError && !t.blocked ? { detail: t.outcome.text.slice(0, 300) } : {}),
+        })),
       });
     } catch (err) {
       console.error(err);
